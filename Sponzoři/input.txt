@@ -1,0 +1,13 @@
+6 6
+4 zebra
+3 kapybara
+0 kajman
+1 hrabac
+5 vakoveverka
+2 outlon
+Erik 2 0 3
+Fiona 2 1 2
+Anakin 1 0
+Beata 2 1 4
+Cyril 2 3 5
+David 3 1 2 4
