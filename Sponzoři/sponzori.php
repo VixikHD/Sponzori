@@ -1,121 +1,288 @@
-<?php
-
-/**
- * Rešení úlohy Sponzoři (1. kolo, 8. ročník FIKSu)
- */
+<?php /** @noinspection PhpDefineCanBeReplacedWithConstInspection */
 
 declare(strict_types=1);
 
-use vixikhd\sponzori\data\Animal;
-use vixikhd\sponzori\data\Pair;
-use vixikhd\sponzori\data\Sponsor;
-use vixikhd\sponzori\TaskSolver;
-use vixikhd\sponzori\Utils;
+namespace vixikhd\sponzori {
+	use ErrorException;
+	use function array_key_exists;
+	use function array_map;
+	use function array_search;
+	use function array_shift;
+	use function array_unique;
+	use function array_values;
+	use function count;
+	use function current;
+	use function define;
+	use function explode;
+	use function file_exists;
+	use function fwrite;
+	use function implode;
+	use function in_array;
+	use function is_numeric;
+	use function is_resource;
+	use function microtime;
+	use function round;
+	use function set_error_handler;
+	use function sort;
+	use function stream_get_line;
+	use function yaml_emit_file;
+	use function yaml_parse_file;
+	use const CHECK_SOLUTION;
+	use const ENABLE_DEBUG;
+	use const OUTPUT_LINE_ENDING;
+	use const OUTPUT_STREAM;
+	use const STATS;
+	use const STDIN;
+	use const STDOUT;
 
-/**
- * Začátek konfigurace programu
- */
+	/**
+	 * Konfigurace
+	 */
 
-// Odkomentujte řádky níže pro zadání inputu skrze stdin
-//define("INPUT_STREAM", STDIN);
-//define("OUTPUT_STREAM", STDOUT);
+	// Odkomentujte řádky níže pro zadání inputu skrze stdin
+//	define("INPUT_STREAM", STDIN);
+	define("OUTPUT_STREAM", STDOUT);
 
-// Odkomentujte řádky níže pro zadání inputu skrze textový soubor
-define("INPUT_STREAM", fopen("input.txt", "r"));
-define("OUTPUT_STREAM", fopen("output.txt", "w"));
+	// Odkomentujte řádky níže pro zadání inputu skrze textový soubor
+	define("INPUT_STREAM", fopen("input.txt", "r"));
+//	define("OUTPUT_STREAM", fopen("output.txt", "w"));
 
-// V některých případech v phpčku blbne nová řádka a je potřeba použít místo PHP_EOL \n nebo naopak
-define("INPUT_LINE_ENDING", PHP_EOL);
-define("OUTPUT_LINE_ENDING", PHP_EOL);
+	// Problémy s windowsem
+	define("INPUT_LINE_ENDING", PHP_EOL);
+	define("OUTPUT_LINE_ENDING", PHP_EOL);
 
-// Debug...
-define("ENABLE_DEBUG", false);
-define("RESOLVE_INFO_FILE", true);
+	// Debug...
+	define("ENABLE_DEBUG", false);
+	define("CHECK_SOLUTION", true); // Checky jdou do stdoutu
+	define("STATS", true); // Staty jdou do stdoutu
 
-/**
- * Konec konfigurace algoritmu
- */
+	/**
+	 * Inicializace
+	 */
 
-if(!is_resource(INPUT_STREAM)) {
-	throw new ErrorException("Invalid input stream");
-}
+	if(!is_resource(INPUT_STREAM)) {
+		throw new ErrorException("Invalid input stream");
+	}
+	if(!is_resource(OUTPUT_STREAM)) {
+		throw new ErrorException("Invalid output stream");
+	}
 
-if(!is_resource(OUTPUT_STREAM)) {
-	throw new ErrorException("Invalid output stream");
-}
+	// Z warningu se mohou stát errory -> snazší nalezení chyb
+	set_error_handler(fn(int $errno, string $errstr, string $errfile, int $errline, ?array $errcontext = []) => throw new ErrorException($errstr, 0, $errno, $errfile, $errline));
 
-spl_autoload_register(function (string $class): void {
-	include "src" . DIRECTORY_SEPARATOR . str_replace("vixikhd\\sponzori\\", "", $class) . ".php";
-});
+	function readLine(): string {
+		return stream_get_line(INPUT_STREAM, 0xfff, INPUT_LINE_ENDING);
+	}
 
-/**
- * Funkce sloužící k načtení dat a vytvoření třídy, která bude úlohu řešit
- */
-function loadSolver(): TaskSolver {
-	$readLine = fn() => stream_get_line(INPUT_STREAM, 0xfff, INPUT_LINE_ENDING);
+	function toTypeSafeArray(array $array): array {
+		return array_map(fn(string $val) => (is_numeric($val) ? (int)$val : $val), $array); // tohle by šlo optimalizovat
+	}
 
-	$animals = $sponsors = $pairs = [];
+	$startTime = microtime(true);
 
-	[$animalCount, $sponsorCount] = Utils::toIntArray(explode(" ", $readLine()));
+	/**
+	 * Načtení dat
+	 */
+	[$animalCount, $sponsorCount] = toTypeSafeArray(explode(" ", readLine()));
+
+	/** @var array<int, string> $animals */
+	$animals = [];
+	/** @var array<int, string> $sponsors */
+	$sponsors = [];
+
+	/** @var int[] $pairs */
+	$pairs = [];
+
 	for($i = 0; $i < $animalCount; ++$i) {
-		[$id, $name] = explode(" ", $readLine());
-		$id = (int)$id;
+		[$id, $name] = toTypeSafeArray(explode(" ", readLine()));
 
-		$animals[$id] = new Animal($name);
+		$animals[$id] = $name;
 	}
+
 	for($i = 0; $i < $sponsorCount; ++$i) {
-		$line = explode(" ", $readLine());
-		$name = array_shift($line);
+		$lineData = toTypeSafeArray(explode(" ", readLine()));
 
-		$sponsors[$i] = new Sponsor($name);
-
-		$count = array_shift($line);
-		if((int)$count != ($invalidCount = count($line))) {
-			throw new ErrorException("Invalid input (Expected $count animals instead of $invalidCount for sponsor $name)");
+		$name = array_shift($lineData);
+		$targetAnimalCount = array_shift($lineData);
+		if(count($lineData) != $targetAnimalCount) {
+			throw new ErrorException("Invalid input given");
 		}
 
-		foreach (Utils::toIntArray($line) as $pairedAnimalId) {
-			$pairs[Utils::pairHash($i, $pairedAnimalId)] = new Pair($i, $pairedAnimalId);
+		$sponsors[$i] = $name;
+
+		foreach($lineData as $id) {
+			$pairs[$i << 8 | $id] = [$i, $id];
 		}
 	}
 
-	return new TaskSolver($animals, $sponsors, $pairs);
-}
+	/** @var array<int, array<int, int>> $sponsorsByAnimals */
+	$sponsorsByAnimals = [];
+	/** @var array<int, array<int, int>> $animalsBySponsors */
+	$animalsBySponsors = [];
 
-function displayOutput(TaskSolver $solver): void {
-	// Ano / Ne
-	fwrite(OUTPUT_STREAM, (count($solver->getAnimals()) == count($solver->getSolution()->getPairs()) ? "Ano" : "Ne") . OUTPUT_LINE_ENDING);
-
-	// Spolupráce
-	$pairs = array_combine(
-		keys: array_map(fn(int $hash) => $solver->getSponsors()[Utils::getSponsorIdFromHash($hash)]->getName(), $solver->getSolution()->getPairs()),
-		values: array_map(fn(int $hash) => $solver->getAnimals()[Utils::getAnimalIdFromHash($hash)]->getName(), $solver->getSolution()->getPairs())
-	);
-	asort($pairs);
-
-	foreach ($pairs as $sponsor => $animal) {
-		fwrite(OUTPUT_STREAM, "$animal $sponsor" . OUTPUT_LINE_ENDING);
+	foreach($pairs as $hash => [$sponsorId, $animalId]) {
+		$sponsorsByAnimals[$animalId][$hash] = $sponsorId;
+		$animalsBySponsors[$sponsorId][$hash] = $animalId;
 	}
+
+	/**
+	 * Ta složitá část
+	 */
+
+	/** @var list<array{0: int $sponsorId, 1: int $animalId}> $solution */
+	$solution = [];
+
+	$debugProgress = ENABLE_DEBUG ? function() use (&$animalsBySponsors, &$sponsorsByAnimals, &$solution, $animals, $sponsors): void {
+		echo "\n\n\nSolution:\n";
+		foreach($solution as [$sponsorId, $animalId]) {
+			echo "$animals[$animalId] $sponsors[$sponsorId]\n";
+		}
+
+		echo "\nsponsors by animals:\n";
+		foreach($sponsorsByAnimals as $animalId => $sponsorIds) {
+			echo "$animals[$animalId] => [" . implode(", ", array_map(fn(int $id) => $sponsors[$id], $sponsorIds)) . "]\n";
+		}
+
+		echo "\nanimals by sponsors:\n";
+		foreach($animalsBySponsors as $sponsorId => $animalIds) {
+			echo "$sponsors[$sponsorId] => [" . implode(", ", array_map(fn(int $id) => $animals[$id], $animalIds)) . "]\n";
+		}
+	} : fn() => null;
+
+	do {
+		$debugProgress();
+		foreach($sponsorsByAnimals as $animalId => $sponsorIds) {
+			if(count($sponsorIds) == 1) {
+				$solution[] = [$sponsorId = current($sponsorIds), $animalId];
+
+				unset($sponsorsByAnimals[$animalId]);
+				foreach($animalsBySponsors[$sponsorId] as $animalId) {
+					if(!isset($sponsorsByAnimals[$animalId][$sponsorId << 8 | $animalId])) {
+						continue;
+					}
+
+					unset($sponsorsByAnimals[$animalId][$sponsorId << 8 | $animalId]);
+					if(count($sponsorsByAnimals[$animalId]) == 0) {
+						unset($sponsorsByAnimals[$animalId][0]);
+					}
+				}
+				unset($animalsBySponsors[$sponsorId]);
+				continue 2;
+			}
+		}
+		foreach($animalsBySponsors as $sponsorId => $animalIds) {
+			if(count($animalIds) == 1) {
+				$solution[] = [$sponsorId, $animalId = current($animalIds)];
+
+				unset($animalsBySponsors[$sponsorId]);
+				foreach($sponsorsByAnimals[$animalId] as $sponsorId) {
+					if(!isset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId])) {
+						continue;
+					}
+					unset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId]);
+					if(count($animalsBySponsors[$sponsorId]) == 0) {
+						unset($animalsBySponsors[$sponsorId]);
+					}
+				}
+
+				unset($sponsorsByAnimals[$animalId]);
+				continue 2;
+			}
+		}
+		foreach($animalsBySponsors as $sponsorId => $animalIds) {
+			$solution[] = [$sponsorId, $animalId = current($animalIds)];
+
+			unset($animalsBySponsors[$sponsorId]);
+			foreach($sponsorsByAnimals[$animalId] as $sponsorId) {
+				if(!isset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId])) {
+					continue;
+				}
+				unset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId]);
+				if(count($animalsBySponsors[$sponsorId]) == 0) {
+					unset($animalsBySponsors[$sponsorId]);
+				}
+			}
+
+			unset($sponsorsByAnimals[$animalId]);
+			continue 2;
+		}
+	} while(0 != count($animalsBySponsors));
+
+	$merged = count($animals) == count($solution);
+
+	/**
+	 * Vypsání outputu
+	 */
+
+	$translatedSolution = array_map(fn(array $ids) => "{$animals[$ids[1]]} {$sponsors[$ids[0]]}", $solution);
+	sort($translatedSolution);
+	fwrite(OUTPUT_STREAM, ($merged ? "Ano" : "Ne") . OUTPUT_LINE_ENDING);
+	foreach($translatedSolution as $line) {
+		fwrite(OUTPUT_STREAM, $line . OUTPUT_LINE_ENDING);
+	}
+
+	/**
+	 * Bordel
+	 */
+	if(!STATS) {
+		goto check;
+	}
+
+	$executionTime = round(microtime(true) - $startTime, 4);
+	$stats = [];
+	if(file_exists("stats.yml")) {
+		$stats = yaml_parse_file("stats.yml");
+	}
+
+	$pairCount = count($pairs);
+	$data = $stats[$index = "$animalCount:$sponsorCount:$pairCount"] ?? [];
+	$data[] = $executionTime;
+	sort($data);
+
+	$stats[$index] = $data;
+	yaml_emit_file("stats.yml", $stats);
+
+	$pos = array_search($executionTime, $data) + 1;
+
+	echo "\n\n";
+	echo "Current test is on #$pos position in comparison to other ones with similar input.\n";
+	echo "Similar attempts: " . (count($data) - 1) . "\n";
+	echo "Execution time: " . $executionTime . "\n";
+
+	check:
+	if(!CHECK_SOLUTION) {
+		return;
+	}
+
+	echo "\n";
+
+	$checkedSponsors = $checkedAnimals = [];
+	foreach($solution as [$sponsorId, $animalId]) {
+		if(in_array($sponsorId, $checkedSponsors)) {
+			echo "Check failed (Solution contains duplicate sponsor $sponsors[$sponsorId])\n";
+			return;
+		}
+		if(in_array($animalId, $checkedAnimals)) {
+			echo "Check failed (Solution contains duplicate animal $animals[$animalId]\n)";
+			return;
+		}
+		if(!array_key_exists($sponsorId << 8 | $animalId, $pairs)) {
+			echo "Check failed (Input does not allow to merge $animals[$animalId] with $sponsors[$sponsorId])\n";
+		}
+ 		$checkedSponsors[] = $sponsorId;
+		$checkedAnimals[] = $animalId;
+	}
+
+	if($merged) {
+		echo "Check success\n";
+		return;
+	}
+
+	echo "Solution success (solution is probably right)\n";
+
+	// TODO - Königův teorém
 }
 
-$startTime = microtime(true);
-$solver = loadSolver();
-$solver->debug("Loaded TaskSolver in " . ($loadTime = round(microtime(true) - $startTime, 3)) . " seconds! Trying to solve the task...");
 
-$startTime = microtime(true);
-$solver->run();
-$solver->debug("Task solved in " . ($resolveTime = round(microtime(true) - $startTime, 3)) . " seconds!");
 
-displayOutput($solver);
 
-if(defined("RESOLVE_INFO_FILE") && RESOLVE_INFO_FILE) {
-	yaml_emit_file("resolve_info.yml", [
-		"load-time" => $loadTime,
-		"resolve-time" => $resolveTime,
-		"sponsor-count" => count($solver->getSponsors()),
-		"animal-count" => count($solver->getAnimals())
-	]);
-}
-
-fclose(INPUT_STREAM);
-fclose(OUTPUT_STREAM);
