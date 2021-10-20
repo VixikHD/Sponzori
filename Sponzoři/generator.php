@@ -49,7 +49,7 @@ foreach ($sponsors as $sponsor) {
 	$output .= "$sponsor $j ";
 	$targets = [];
 	for($i = 0; $i < $j; ++$i) {
-		$targets[] = (string)mt_rand(0, ANIMAL_COUNT - mt_rand(1, ANIMAL_COUNT));
+		$targets[] = (string)mt_rand(0, ANIMAL_COUNT - mt_rand(1, intdiv(ANIMAL_COUNT, mt_rand(1, 10))));
 	}
 
 	$output .= implode(" ", $targets) . PHP_EOL;

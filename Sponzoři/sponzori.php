@@ -3,13 +3,12 @@
 declare(strict_types=1);
 
 namespace vixikhd\sponzori {
+
 	use ErrorException;
 	use function array_key_exists;
 	use function array_map;
 	use function array_search;
 	use function array_shift;
-	use function array_unique;
-	use function array_values;
 	use function count;
 	use function current;
 	use function define;
@@ -20,6 +19,7 @@ namespace vixikhd\sponzori {
 	use function in_array;
 	use function is_numeric;
 	use function is_resource;
+	use function memory_get_usage;
 	use function microtime;
 	use function round;
 	use function set_error_handler;
@@ -29,10 +29,10 @@ namespace vixikhd\sponzori {
 	use function yaml_parse_file;
 	use const CHECK_SOLUTION;
 	use const ENABLE_DEBUG;
+	use const GENERATE_RANDOM_INPUT;
 	use const OUTPUT_LINE_ENDING;
 	use const OUTPUT_STREAM;
 	use const STATS;
-	use const STDIN;
 	use const STDOUT;
 
 	/**
@@ -55,10 +55,15 @@ namespace vixikhd\sponzori {
 	define("ENABLE_DEBUG", false);
 	define("CHECK_SOLUTION", true); // Checky jdou do stdoutu
 	define("STATS", true); // Staty jdou do stdoutu
+	define("GENERATE_RANDOM_INPUT", true);
 
 	/**
 	 * Inicializace
 	 */
+
+	if(GENERATE_RANDOM_INPUT) {
+		require "generator.php";
+	}
 
 	if(!is_resource(INPUT_STREAM)) {
 		throw new ErrorException("Invalid input stream");
@@ -74,16 +79,21 @@ namespace vixikhd\sponzori {
 		return stream_get_line(INPUT_STREAM, 0xfff, INPUT_LINE_ENDING);
 	}
 
+	function toIntArray(array $array): array {
+		return [(int)$array[0], (int)$array[1]];
+	}
+
 	function toTypeSafeArray(array $array): array {
 		return array_map(fn(string $val) => (is_numeric($val) ? (int)$val : $val), $array); // tohle by šlo optimalizovat
 	}
 
 	$startTime = microtime(true);
+	$startMemoryUsage = memory_get_usage();
 
 	/**
 	 * Načtení dat
 	 */
-	[$animalCount, $sponsorCount] = toTypeSafeArray(explode(" ", readLine()));
+	[$animalCount, $sponsorCount] = toIntArray(explode(" ", readLine()));
 
 	/** @var array<int, string> $animals */
 	$animals = [];
@@ -121,9 +131,11 @@ namespace vixikhd\sponzori {
 	$animalsBySponsors = [];
 
 	foreach($pairs as $hash => [$sponsorId, $animalId]) {
-		$sponsorsByAnimals[$animalId][$hash] = $sponsorId;
-		$animalsBySponsors[$sponsorId][$hash] = $animalId;
+		$sponsorsByAnimals[$animalId][$sponsorId] = $sponsorId;
+		$animalsBySponsors[$sponsorId][$animalId] = $animalId;
 	}
+
+	$maxMemoryUsage = memory_get_usage();
 
 	/**
 	 * Ta složitá část
@@ -157,13 +169,13 @@ namespace vixikhd\sponzori {
 
 				unset($sponsorsByAnimals[$animalId]);
 				foreach($animalsBySponsors[$sponsorId] as $animalId) {
-					if(!isset($sponsorsByAnimals[$animalId][$sponsorId << 8 | $animalId])) {
+					if(!isset($sponsorsByAnimals[$animalId][$sponsorId])) {
 						continue;
 					}
 
-					unset($sponsorsByAnimals[$animalId][$sponsorId << 8 | $animalId]);
+					unset($sponsorsByAnimals[$animalId][$sponsorId]);
 					if(count($sponsorsByAnimals[$animalId]) == 0) {
-						unset($sponsorsByAnimals[$animalId][0]);
+						unset($sponsorsByAnimals[$animalId]);
 					}
 				}
 				unset($animalsBySponsors[$sponsorId]);
@@ -176,10 +188,10 @@ namespace vixikhd\sponzori {
 
 				unset($animalsBySponsors[$sponsorId]);
 				foreach($sponsorsByAnimals[$animalId] as $sponsorId) {
-					if(!isset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId])) {
+					if(!isset($animalsBySponsors[$sponsorId][$animalId])) {
 						continue;
 					}
-					unset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId]);
+					unset($animalsBySponsors[$sponsorId][$animalId]);
 					if(count($animalsBySponsors[$sponsorId]) == 0) {
 						unset($animalsBySponsors[$sponsorId]);
 					}
@@ -192,17 +204,27 @@ namespace vixikhd\sponzori {
 		foreach($animalsBySponsors as $sponsorId => $animalIds) {
 			$solution[] = [$sponsorId, $animalId = current($animalIds)];
 
-			unset($animalsBySponsors[$sponsorId]);
-			foreach($sponsorsByAnimals[$animalId] as $sponsorId) {
-				if(!isset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId])) {
+
+			foreach($sponsorsByAnimals[$animalId] as $anotherSponsorId) {
+				if(!isset($animalsBySponsors[$anotherSponsorId][$animalId])) {
 					continue;
 				}
-				unset($animalsBySponsors[$sponsorId][$sponsorId << 8 | $animalId]);
-				if(count($animalsBySponsors[$sponsorId]) == 0) {
-					unset($animalsBySponsors[$sponsorId]);
+				unset($animalsBySponsors[$anotherSponsorId][$animalId]);
+				if(count($animalsBySponsors[$anotherSponsorId]) == 0) {
+					unset($animalsBySponsors[$anotherSponsorId]);
+				}
+			}
+			foreach($animalIds as $anotherAnimalId) {
+				if(!isset($sponsorsByAnimals[$anotherAnimalId][$sponsorId])) {
+					continue;
+				}
+				unset($sponsorsByAnimals[$anotherAnimalId][$sponsorId]);
+				if(count($sponsorsByAnimals[$anotherAnimalId]) == 0) {
+					unset($sponsorsByAnimals[$anotherAnimalId]);
 				}
 			}
 
+			unset($animalsBySponsors[$sponsorId]);
 			unset($sponsorsByAnimals[$animalId]);
 			continue 2;
 		}
@@ -234,8 +256,8 @@ namespace vixikhd\sponzori {
 		$stats = yaml_parse_file("stats.yml");
 	}
 
-	$pairCount = count($pairs);
-	$data = $stats[$index = "$animalCount:$sponsorCount:$pairCount"] ?? [];
+//	$pairCount = count($pairs);
+	$data = $stats[$index = "$animalCount:$sponsorCount"/*.":$pairCount"*/] ?? [];
 	$data[] = $executionTime;
 	sort($data);
 
@@ -244,10 +266,19 @@ namespace vixikhd\sponzori {
 
 	$pos = array_search($executionTime, $data) + 1;
 
+	$averageTime = 0;
+	foreach($data as $val) {
+		$averageTime += $val;
+	}
+
+	$averageTime = round($averageTime / count($data), 4);
+
 	echo "\n\n";
 	echo "Current test is on #$pos position in comparison to other ones with similar input.\n";
 	echo "Similar attempts: " . (count($data) - 1) . "\n";
-	echo "Execution time: " . $executionTime . "\n";
+	echo "Execution time: " . $executionTime . "s\n";
+	echo "Average execution time: " . $averageTime . "s\n";
+	echo "Maximum memory usage: " . round((($maxMemoryUsage - $startMemoryUsage) / (1024 ** 2)), 4) . "MB / " . round($startMemoryUsage / (1024 * 2), 4) . "MB\n";
 
 	check:
 	if(!CHECK_SOLUTION) {
@@ -269,7 +300,7 @@ namespace vixikhd\sponzori {
 		if(!array_key_exists($sponsorId << 8 | $animalId, $pairs)) {
 			echo "Check failed (Input does not allow to merge $animals[$animalId] with $sponsors[$sponsorId])\n";
 		}
- 		$checkedSponsors[] = $sponsorId;
+		$checkedSponsors[] = $sponsorId;
 		$checkedAnimals[] = $animalId;
 	}
 
@@ -278,7 +309,7 @@ namespace vixikhd\sponzori {
 		return;
 	}
 
-	echo "Solution success (solution is probably right)\n";
+	echo "Check success (solution is probably right)\n";
 
 	// TODO - Königův teorém
 }
