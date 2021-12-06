@@ -1,5 +1,12 @@
 <?php /** @noinspection PhpDefineCanBeReplacedWithConstInspection */
 
+/**
+ * Řešení úlohy Sponzoři (1. kolo FIKS 2021)
+ *
+ * - Ke spuštění programu je potřeba verze php>=8.0
+ * - Nedoporučuji používat JIT.
+ */
+
 declare(strict_types=1);
 
 namespace vixikhd\sponzori {
@@ -33,34 +40,33 @@ namespace vixikhd\sponzori {
 	use const OUTPUT_LINE_ENDING;
 	use const OUTPUT_STREAM;
 	use const STATS;
+	use const STDIN;
 	use const STDOUT;
 
 	/**
 	 * Konfigurace
 	 */
-
 	// Odkomentujte řádky níže pro zadání inputu skrze stdin
-//	define("INPUT_STREAM", STDIN);
+	define("INPUT_STREAM", STDIN);
 	define("OUTPUT_STREAM", STDOUT);
 
 	// Odkomentujte řádky níže pro zadání inputu skrze textový soubor
-	define("INPUT_STREAM", fopen("input.txt", "r"));
+//	define("INPUT_STREAM", fopen("input.txt", "r"));
 //	define("OUTPUT_STREAM", fopen("output.txt", "w"));
 
 	// Problémy s windowsem
-	define("INPUT_LINE_ENDING", PHP_EOL);
-	define("OUTPUT_LINE_ENDING", PHP_EOL);
+	define("INPUT_LINE_ENDING", "\n");
+	define("OUTPUT_LINE_ENDING", "\n");
 
 	// Debug...
-	define("ENABLE_DEBUG", false);
-	define("CHECK_SOLUTION", true); // Checky jdou do stdoutu
-	define("STATS", true); // Staty jdou do stdoutu
-	define("GENERATE_RANDOM_INPUT", true);
+	define("ENABLE_DEBUG", false); // Muze znehodnotit reseni (jde do stdoutu)
+	define("CHECK_SOLUTION", false); // Checky jdou do stdoutu
+	define("STATS", false); // Staty jdou do stdoutu
+	define("GENERATE_RANDOM_INPUT", false); // Je potreba generator.php
 
 	/**
 	 * Inicializace
 	 */
-
 	if(GENERATE_RANDOM_INPUT) {
 		require "generator.php";
 	}
@@ -130,7 +136,7 @@ namespace vixikhd\sponzori {
 	/** @var array<int, array<int, int>> $animalsBySponsors */
 	$animalsBySponsors = [];
 
-	foreach($pairs as $hash => [$sponsorId, $animalId]) {
+	foreach($pairs as [$sponsorId, $animalId]) {
 		$sponsorsByAnimals[$animalId][$sponsorId] = $sponsorId;
 		$animalsBySponsors[$sponsorId][$animalId] = $animalId;
 	}
@@ -141,7 +147,7 @@ namespace vixikhd\sponzori {
 	 * Ta složitá část
 	 */
 
-	/** @var list<array{0: int $sponsorId, 1: int $animalId}> $solution */
+	/** @phpstan-var list<array{0: int $sponsorId, 1: int $animalId}> $solution */
 	$solution = [];
 
 	$debugProgress = ENABLE_DEBUG ? function() use (&$animalsBySponsors, &$sponsorsByAnimals, &$solution, $animals, $sponsors): void {
@@ -161,14 +167,14 @@ namespace vixikhd\sponzori {
 		}
 	} : fn() => null;
 
-	do {
+	do { // O = max(s, z)
 		$debugProgress();
-		foreach($sponsorsByAnimals as $animalId => $sponsorIds) {
+		foreach($sponsorsByAnimals as $animalId => $sponsorIds) { // O = (z * (z + 1)) / 2
 			if(count($sponsorIds) == 1) {
 				$solution[] = [$sponsorId = current($sponsorIds), $animalId];
 
 				unset($sponsorsByAnimals[$animalId]);
-				foreach($animalsBySponsors[$sponsorId] as $animalId) {
+				foreach($animalsBySponsors[$sponsorId] as $animalId) { // O = (z * (z + 1)) / 2
 					if(!isset($sponsorsByAnimals[$animalId][$sponsorId])) {
 						continue;
 					}
@@ -178,16 +184,17 @@ namespace vixikhd\sponzori {
 						unset($sponsorsByAnimals[$animalId]);
 					}
 				}
+
 				unset($animalsBySponsors[$sponsorId]);
 				continue 2;
 			}
 		}
-		foreach($animalsBySponsors as $sponsorId => $animalIds) {
+		foreach($animalsBySponsors as $sponsorId => $animalIds) { // O = (s * (s + 1)) / 2
 			if(count($animalIds) == 1) {
 				$solution[] = [$sponsorId, $animalId = current($animalIds)];
 
 				unset($animalsBySponsors[$sponsorId]);
-				foreach($sponsorsByAnimals[$animalId] as $sponsorId) {
+				foreach($sponsorsByAnimals[$animalId] as $sponsorId) { // O = (s * (s + 1)) / 2
 					if(!isset($animalsBySponsors[$sponsorId][$animalId])) {
 						continue;
 					}
@@ -204,7 +211,6 @@ namespace vixikhd\sponzori {
 		foreach($animalsBySponsors as $sponsorId => $animalIds) {
 			$solution[] = [$sponsorId, $animalId = current($animalIds)];
 
-
 			foreach($sponsorsByAnimals[$animalId] as $anotherSponsorId) {
 				if(!isset($animalsBySponsors[$anotherSponsorId][$animalId])) {
 					continue;
@@ -214,6 +220,7 @@ namespace vixikhd\sponzori {
 					unset($animalsBySponsors[$anotherSponsorId]);
 				}
 			}
+
 			foreach($animalIds as $anotherAnimalId) {
 				if(!isset($sponsorsByAnimals[$anotherAnimalId][$sponsorId])) {
 					continue;
@@ -235,7 +242,6 @@ namespace vixikhd\sponzori {
 	/**
 	 * Vypsání outputu
 	 */
-
 	$translatedSolution = array_map(fn(array $ids) => "{$animals[$ids[1]]} {$sponsors[$ids[0]]}", $solution);
 	sort($translatedSolution);
 	fwrite(OUTPUT_STREAM, ($merged ? "Ano" : "Ne") . OUTPUT_LINE_ENDING);
@@ -310,10 +316,4 @@ namespace vixikhd\sponzori {
 	}
 
 	echo "Check success (solution is probably right)\n";
-
-	// TODO - Königův teorém
 }
-
-
-
-
